@@ -22,3 +22,6 @@ docx2txt
 openpyxl
 pylint
 black
+pymupdf
+pypdf2
+rapidocr-onnxruntime
