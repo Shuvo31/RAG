@@ -25,3 +25,4 @@ black
 pymupdf
 pypdf2
 rapidocr-onnxruntime
+msal
