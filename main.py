@@ -81,10 +81,13 @@ def init_msal_app():
 
 def get_auth_url():
     """Generate Azure AD authentication URL"""
+    # Use the exact redirect URI from environment
+    redirect_uri = AZURE_AD_REDIRECT_URI.rstrip('/')
+    
     msal_app = init_msal_app()
     auth_url = msal_app.get_authorization_request_url(
         scopes=["https://graph.microsoft.com/User.Read"],
-        redirect_uri=AZURE_AD_REDIRECT_URI,
+        redirect_uri=redirect_uri,
     )
     return auth_url
 
