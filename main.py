@@ -11,12 +11,13 @@ from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import AzureChatOpenAI
+import msal
 
 # -----------------------------
 # App / Env setup
 # -----------------------------
 warnings.filterwarnings("ignore")
-st.set_page_config(page_title="Advanced RAG Chat", layout="wide")
+st.set_page_config(page_title="Club Med RAG Portal", layout="wide")
 load_dotenv()
 
 # Configuration
@@ -25,6 +26,12 @@ MAX_CHUNKS_PER_SOURCE = 2
 SIMILARITY_THRESHOLD = 0.35
 CONVERSATION_MEMORY_SIZE = 10  # Number of previous exchanges to remember
 DEFAULT_LOCAL_DIR = r"Entity_Resorts"
+
+# Azure AD Configuration
+AZURE_AD_CLIENT_ID = os.getenv("AZURE_AD_CLIENT_ID")
+AZURE_AD_CLIENT_SECRET = os.getenv("AZURE_AD_CLIENT_SECRET")
+AZURE_AD_TENANT_ID = os.getenv("AZURE_AD_TENANT_ID")
+AZURE_AD_REDIRECT_URI = os.getenv("AZURE_AD_REDIRECT_URI")
 
 # Azure OpenAI Configuration
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -36,18 +43,126 @@ AZURE_API_VERSION = os.getenv("AZURE_API_VERSION")
 INPUT_COST_PER_1K = 0.0015  # Adjust based on your Azure model
 OUTPUT_COST_PER_1K = 0.0020  # Adjust based on your Azure model
 
-missing = [k for k, v in {
+# Check required configurations
+missing_aad = [k for k, v in {
+    "AZURE_AD_CLIENT_ID": AZURE_AD_CLIENT_ID,
+    "AZURE_AD_CLIENT_SECRET": AZURE_AD_CLIENT_SECRET,
+    "AZURE_AD_TENANT_ID": AZURE_AD_TENANT_ID,
+}.items() if not v]
+
+missing_openai = [k for k, v in {
     "AZURE_OPENAI_ENDPOINT": AZURE_OPENAI_ENDPOINT,
     "AZURE_OPENAI_API_KEY": AZURE_OPENAI_API_KEY,
     "AZURE_DEPLOYMENT_NAME": AZURE_DEPLOYMENT_NAME,
 }.items() if not v]
 
-if missing:
-    st.error(f"⚠️ Missing configuration: {', '.join(missing)}")
+if missing_aad:
+    st.error(f"⚠️ Missing Azure AD configuration: {', '.join(missing_aad)}")
+    st.info("Please configure these values in Streamlit Cloud secrets or your .env file")
+    st.stop()
+
+if missing_openai:
+    st.error(f"⚠️ Missing Azure OpenAI configuration: {', '.join(missing_openai)}")
     st.info("Please configure these values in Streamlit Cloud secrets or your .env file")
     st.stop()
 
 FAISS_INDEX_PATH = "faiss_index"
+
+# -----------------------------
+# Azure AD Authentication
+# -----------------------------
+def init_msal_app():
+    """Initialize MSAL confidential client application"""
+    return msal.ConfidentialClientApplication(
+        AZURE_AD_CLIENT_ID,
+        authority=f"https://login.microsoftonline.com/{AZURE_AD_TENANT_ID}",
+        client_credential=AZURE_AD_CLIENT_SECRET,
+    )
+
+def get_auth_url():
+    """Generate Azure AD authentication URL"""
+    msal_app = init_msal_app()
+    auth_url = msal_app.get_authorization_request_url(
+        scopes=["https://graph.microsoft.com/User.Read"],
+        redirect_uri=AZURE_AD_REDIRECT_URI,
+    )
+    return auth_url
+
+def handle_authentication_callback():
+    """Handle the authentication callback and get tokens"""
+    query_params = st.query_params
+    code = query_params.get("code", [None])[0]
+    
+    if code:
+        msal_app = init_msal_app()
+        result = msal_app.acquire_token_by_authorization_code(
+            code,
+            scopes=["https://graph.microsoft.com/User.Read"],
+            redirect_uri=AZURE_AD_REDIRECT_URI,
+        )
+        
+        if "access_token" in result:
+            st.session_state.auth_result = result
+            st.session_state.is_authenticated = True
+            st.session_state.user_email = result.get("id_token_claims", {}).get("preferred_username", "Unknown")
+            
+            # Clear the code from URL
+            st.query_params.clear()
+            st.rerun()
+        else:
+            st.error(f"Authentication failed: {result.get('error_description', 'Unknown error')}")
+
+def login_ui():
+    """Display login interface"""
+    st.title("Club Med RAG Portal")
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("https://via.placeholder.com/150x50/0078D4/FFFFFF?text=Club+Med", width=150)
+        st.subheader("Welcome to Club Med Knowledge Portal")
+        st.markdown("Please sign in with your organizational account to access the knowledge base.")
+        
+        auth_url = get_auth_url()
+        st.markdown(f"""
+        <a href="{auth_url}" target="_self">
+            <button style="
+                background-color: #0078D4;
+                color: white;
+                padding: 12px 24px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+                width: 100%;
+            ">
+                Sign in with Microsoft
+            </button>
+        </a>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.caption("This portal provides AI-powered access to Club Med documentation and resources.")
+
+def logout():
+    """Clear authentication state"""
+    st.session_state.clear()
+    st.rerun()
+
+def check_authentication():
+    """Check if user is authenticated"""
+    # Handle authentication callback if present
+    if "code" in st.query_params:
+        handle_authentication_callback()
+        return False
+    
+    # Check if already authenticated
+    if st.session_state.get("is_authenticated"):
+        return True
+    
+    # Show login UI
+    login_ui()
+    return False
 
 # -----------------------------
 # Enhanced Cached Resource Loaders
@@ -226,6 +341,10 @@ def init_session():
         st.session_state.query_enhancer = QueryEnhancer()
     if "image_handler" not in st.session_state:
         st.session_state.image_handler = ImageQueryHandler()
+    if "is_authenticated" not in st.session_state:
+        st.session_state.is_authenticated = False
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
 
 def get_conversation_memory(chat, window_size=CONVERSATION_MEMORY_SIZE):
     """Extract recent conversation context for memory"""
@@ -340,8 +459,13 @@ def format_sources_markdown(ordered_sources, page_limit=12, show_basename=True):
 # -----------------------------
 # Initialize Resources and Session
 # -----------------------------
+init_session()
 
-# Load resources at module level
+# Check authentication before proceeding
+if not check_authentication():
+    st.stop()
+
+# Load resources only if authenticated
 try:
     vectorstore = load_vectorstore()
     llm = load_llm()
@@ -349,14 +473,21 @@ except Exception as e:
     st.error(f"Failed to initialize application: {e}")
     st.stop()
 
-init_session()
 if st.session_state.current_chat_id is None:
     new_chat()
 
 # -----------------------------
-# Enhanced Sidebar
+# Enhanced Sidebar with User Info
 # -----------------------------
 with st.sidebar:
+    # User info section
+    st.header(f"👤 {st.session_state.user_email.split('@')[0]}")
+    st.caption(st.session_state.user_email)
+    
+    if st.button("🚪 Sign Out", use_container_width=True):
+        logout()
+    
+    st.divider()
     st.header("💭 Chat Sessions")
     
     if st.button("🆕 New Chat", use_container_width=True):
@@ -413,7 +544,8 @@ current = get_current_chat()
 if current is None:
     st.stop()
 
-st.title("🧠 Advanced RAG Chat with Memory")
+st.title("🧠 Club Med Knowledge Portal")
+st.caption(f"Welcome, {st.session_state.user_email} | Secure RAG Chat with Azure AD")
 
 # Display chat history with enhanced formatting
 for msg in current["messages"]:
@@ -436,7 +568,7 @@ for msg in current["messages"]:
 # -----------------------------
 # Enhanced User Input Processing
 # -----------------------------
-user_query = st.chat_input("Ask something about your documents...")
+user_query = st.chat_input("Ask something about Club Med documents...")
 
 if user_query:
     # Add user message to chat
