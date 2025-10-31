@@ -40,8 +40,8 @@ AZURE_DEPLOYMENT_NAME = os.getenv("AZURE_DEPLOYMENT_NAME")
 AZURE_API_VERSION = os.getenv("AZURE_API_VERSION")
 
 # Cost tracking (approximate costs per 1K tokens)
-INPUT_COST_PER_1K = 0.0015  # Adjust based on your Azure model
-OUTPUT_COST_PER_1K = 0.0020  # Adjust based on your Azure model
+INPUT_COST_PER_1K = 0.00025  # Adjust based on your Azure model
+OUTPUT_COST_PER_1K = 0.001  # Adjust based on your Azure model
 
 # Check required configurations
 missing_aad = [k for k, v in {
