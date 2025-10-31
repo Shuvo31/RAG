@@ -80,49 +80,57 @@ def init_msal_app():
     )
 
 def get_auth_url():
-    """Generate Azure AD authentication URL"""
-    # Use the exact redirect URI from environment
-    redirect_uri = AZURE_AD_REDIRECT_URI.rstrip('/')
-    
+    """Generate Azure AD authentication URL for Streamlit Cloud"""
     msal_app = init_msal_app()
+    
+    # For Streamlit Cloud, we need to handle the redirect properly
     auth_url = msal_app.get_authorization_request_url(
         scopes=["https://graph.microsoft.com/User.Read"],
-        redirect_uri=redirect_uri,
+        redirect_uri=AZURE_AD_REDIRECT_URI,
+        state="clubmed_rag_auth"  # Add state parameter for security
     )
     return auth_url
 
 def handle_authentication_callback():
     """Handle the authentication callback and get tokens"""
     query_params = st.query_params
-    code = query_params.get("code", [None])[0]
+    code = query_params.get("code")
     
     if code:
-        msal_app = init_msal_app()
-        result = msal_app.acquire_token_by_authorization_code(
-            code,
-            scopes=["https://graph.microsoft.com/User.Read"],
-            redirect_uri=AZURE_AD_REDIRECT_URI,
-        )
-        
-        if "access_token" in result:
-            st.session_state.auth_result = result
-            st.session_state.is_authenticated = True
-            st.session_state.user_email = result.get("id_token_claims", {}).get("preferred_username", "Unknown")
+        if isinstance(code, list):
+            code = code[0]
             
-            # Clear the code from URL
-            st.query_params.clear()
-            st.rerun()
-        else:
-            st.error(f"Authentication failed: {result.get('error_description', 'Unknown error')}")
+        try:
+            msal_app = init_msal_app()
+            result = msal_app.acquire_token_by_authorization_code(
+                code,
+                scopes=["https://graph.microsoft.com/User.Read"],
+                redirect_uri=AZURE_AD_REDIRECT_URI,
+            )
+            
+            if "access_token" in result:
+                st.session_state.auth_result = result
+                st.session_state.is_authenticated = True
+                st.session_state.user_email = result.get("id_token_claims", {}).get("preferred_username", "Unknown")
+                
+                # Clear the code from URL
+                st.query_params.clear()
+                st.rerun()
+            else:
+                error_msg = result.get("error_description", "Unknown authentication error")
+                st.error(f"Authentication failed: {error_msg}")
+                
+        except Exception as e:
+            st.error(f"Authentication error: {str(e)}")
 
 def login_ui():
     """Display login interface"""
-    st.title("Club Med RAG Portal")
+    st.title("🔐 Club Med RAG Portal")
     st.markdown("---")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_IRzH6PSS4CLb6lCXJyFxtAm-ZYUwRthEJg&s", width=150)
+        st.image("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_IRzH6PSS4CLb6lCXJyFxtAm-ZYUwRthEJg&s", width=100)
         st.subheader("Welcome to Club Med Knowledge Portal")
         st.markdown("Please sign in with your organizational account to access the knowledge base.")
         
@@ -144,8 +152,14 @@ def login_ui():
         </a>
         """, unsafe_allow_html=True)
         
+        # Debug information (remove in production)
+        with st.expander("🔧 Debug Info"):
+            st.write("Redirect URI:", AZURE_AD_REDIRECT_URI)
+            st.write("Client ID:", AZURE_AD_CLIENT_ID[:10] + "..." if AZURE_AD_CLIENT_ID else "Not set")
+        
         st.markdown("---")
         st.caption("This portal provides AI-powered access to Club Med documentation and resources.")
+
 
 def logout():
     """Clear authentication state"""
