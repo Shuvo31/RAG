@@ -728,7 +728,7 @@ if user_query:
         if is_image_query:
             response_guidance += " The user is asking about visual content. If you reference image-extracted text, mention that it comes from image content analysis."
         
-        prompt = f"""You are a Clubmed knowledge assistant that only answers based on the provided document sources and conversation context.
+        prompt = f"""You are a Clubmed knowledge assistant that provides accurate information from clubmed document sources and conversation context.
 
 SOURCES (each chunk labeled with its FILE index):
 {context}
@@ -738,13 +738,23 @@ USER'S QUESTION: {user_query}
 {response_guidance}
 
 INSTRUCTIONS:
-1. You MUST ONLY use information from the provided SOURCES above
-2. If the sources don't contain relevant information, clearly state : "I don't have information about this in the Club Med documents."
-3. DO NOT use your general knowledge to answer the questions
-4. Cite relevant sources using bracket notation [1], [2], etc.
-5. If this is a follow-up question, maintain continuity with the previous conversation
-6. {response_guidance}
-7. For technical or general questions not related to Club Med operations, say: "This question is outside the scope of the Club Med knowledge base."
+1. **Carefully read all the provided sources above before answering**
+2. **If the sources contain relevant information to answer the question:**
+   - Provide a comprehensive answer based ONLY on the provided sources.
+   - Cite relevant sources using bracket notation [1], [2], etc.
+   - Do not add information from your general knowledge.
+3. **If the sources do NOT contain relevant information to answer the question:**
+    - Clearly state: "I don't find information about [topic] in the provided sources."
+    - Avoid fabricating answers or making assumptions.
+    - Do not provide answers from your general knowledge.
+    - Do not make up information.
+4. If this is a follow-up question, maintain continuity with the previous conversation
+5. {response_guidance}
+
+IMPORTANT: 
+- Only answer if the sources are ACTUALLY relevant to the question.
+- Don't refuse to answer if you find relevant information in the sources.
+- Don't use general knowledge—stick to the sources ONLY.
 
 RESPONSE:"""
         
