@@ -740,7 +740,7 @@ USER'S QUESTION: {user_query}
 INSTRUCTIONS:
 1. You MUST ONLY use information from the provided SOURCES above
 2. If the sources don't contain relevant information, clearly state : "I don't have information about this in the Club Med documents."
-3. DO NOT use your general knowledge or training data to answer the questions
+3. DO NOT use your general knowledge to answer the questions
 4. Cite relevant sources using bracket notation [1], [2], etc.
 5. If this is a follow-up question, maintain continuity with the previous conversation
 6. {response_guidance}
