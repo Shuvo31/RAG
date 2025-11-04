@@ -178,8 +178,7 @@ def login_ui():
             st.error(f"Error generating login URL: {str(e)}")
             with st.expander("Error Details"):
                 st.exception(e)
-        
-        st.markdown("---")
+    
         st.caption("This portal provides AI-powered access to Club Med documentation and resources.")
 
 
