@@ -23,7 +23,7 @@ load_dotenv()
 # Configuration
 MAX_SOURCES_TO_SHOW = 3
 MAX_CHUNKS_PER_SOURCE = 2
-SIMILARITY_THRESHOLD = 0.35
+SIMILARITY_THRESHOLD = 0.25
 CONVERSATION_MEMORY_SIZE = 10  # Number of previous exchanges to remember
 DEFAULT_LOCAL_DIR = r"Entity_Resorts"
 
@@ -662,13 +662,13 @@ if user_query:
             # Use MMR for diverse, relevant results
             docs = vectorstore.max_marginal_relevance_search(
                 enhanced_query, 
-                k=8,  # Slightly more for better coverage
-                fetch_k=20
+                k=12,  # Slightly more for better coverage
+                fetch_k=30
             )
             
             # Apply similarity threshold
             try:
-                scored = vectorstore.similarity_search_with_score(enhanced_query, k=12)
+                scored = vectorstore.similarity_search_with_score(enhanced_query, k=20)
                 filtered_docs = [d for d, score in scored if score >= SIMILARITY_THRESHOLD]
                 if filtered_docs:
                     filtered_sources = {
