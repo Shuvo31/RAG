@@ -317,7 +317,7 @@ class ImageQueryHandler:
         image_docs = [doc for doc in docs if doc.metadata.get('content_type') == 'image_ocr']
         
         if not image_docs:
-            return original_response + "\n\n*💡 For detailed image analysis, you can run the image processor script to extract text from images.*"
+            return original_response + "\n\n*For detailed image analysis, you can run the image processor script to extract text from images.*"
         
         # Group image texts by source
         from collections import defaultdict
@@ -327,7 +327,7 @@ class ImageQueryHandler:
             source = doc.metadata.get('file_name', 'Unknown')
             image_groups[source].append(doc)
         
-        enhanced_response = original_response + "\n\n**📷 Extracted Image Content:**\n"
+        enhanced_response = original_response + "\n\n**Extracted Image Content:**\n"
         
         for source, docs in list(image_groups.items())[:2]:  # Show max 2 sources
             enhanced_response += f"\n**From {source}:**\n"
@@ -540,7 +540,7 @@ with st.sidebar:
     # Chat history with better display
     for chat in st.session_state.chats:
         is_active = chat["id"] == st.session_state.current_chat_id
-        emoji = "On" if is_active else "Off"
+        emoji = "O" if is_active else "*"
         label = f"{emoji} {chat['title']}"
         
         if st.button(label, key=chat["id"], use_container_width=True):
@@ -566,20 +566,42 @@ with st.sidebar:
     st.subheader("Image Support")
     st.caption("Image text extraction available via separate processor")
     if st.button("Check for Image Content", use_container_width=True):
-        # Check if image content exists in the vectorstore
+    # Check if image content exists in the vectorstore
         image_docs = []
         try:
-            # Sample query to find image content
-            sample_docs = vectorstore.similarity_search("image chart diagram", k=10)
-            image_docs = [doc for doc in sample_docs if doc.metadata.get('content_type') == 'image_ocr']
-        except:
-            pass
+        # Use a broader search to find image content
+        # Try multiple queries with larger k value
+            queries = ["content document", "image chart diagram", "visual content", "figure illustration"]
+            for query in queries:
+                sample_docs = vectorstore.similarity_search(query, k=50)  # Increased from 10 to 50
+                found = [doc for doc in sample_docs if doc.metadata.get('content_type') == 'image_ocr']
+                image_docs.extend(found)
         
+        # Remove duplicates
+            seen = set()
+            unique_docs = []
+            for doc in image_docs:
+                doc_id = (doc.metadata.get('file_name', ''), doc.metadata.get('original_page', ''))
+                if doc_id not in seen:
+                    seen.add(doc_id)
+                    unique_docs.append(doc)
+            image_docs = unique_docs
+            
+        except Exception as e:
+            st.error(f"Error checking for images: {e}")
+    
         if image_docs:
-            st.success(f"Found {len(image_docs)} image text chunks")
+            st.success(f"Found {len(image_docs)} unique image text chunks")
+        
+        # Show a sample
+            if image_docs:
+                with st.expander("View Sample Image Content"):
+                    sample = image_docs[0]
+                    st.write(f"**File:** {sample.metadata.get('file_name', 'Unknown')}")
+                    st.write(f"**Page:** {sample.metadata.get('original_page', '?')}")
+                    st.write(f"**Text Preview:** {sample.page_content[:200]}...")
         else:
             st.info("No image content found. Run image_processor.py to extract text from images.")
-
 # -----------------------------
 # Main Chat Interface
 # -----------------------------
