@@ -728,7 +728,7 @@ if user_query:
         if is_image_query:
             response_guidance += " The user is asking about visual content. If you reference image-extracted text, mention that it comes from image content analysis."
         
-        prompt = f"""You are a helpful assistant that answers based on the provided sources and conversation context.
+        prompt = f"""You are a Clubmed knowledge assistant that only answers based on the provided document sources and conversation context.
 
 SOURCES (each chunk labeled with its FILE index):
 {context}
@@ -738,11 +738,13 @@ USER'S QUESTION: {user_query}
 {response_guidance}
 
 INSTRUCTIONS:
-1. Answer strictly based on the provided sources when possible
-2. Cite relevant sources using bracket notation [1], [2], etc.
-3. If this is a follow-up question, maintain continuity with the previous conversation
-4. {response_guidance}
-5. If the sources don't contain relevant information, say so but you can still provide a helpful response based on general knowledge
+1. You MUST ONLY use information from the provided SOURCES above
+2. If the sources don't contain relevant information, clearly state : "I don't have information about this in the Club Med documents."
+3. DO NOT use your general knowledge or training data to answer the questions
+4. Cite relevant sources using bracket notation [1], [2], etc.
+5. If this is a follow-up question, maintain continuity with the previous conversation
+6. {response_guidance}
+7. For technical or general questions not related to Club Med operations, say: "This question is outside the scope of the Club Med knowledge base."
 
 RESPONSE:"""
         
