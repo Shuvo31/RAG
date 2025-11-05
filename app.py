@@ -23,7 +23,7 @@ load_dotenv()
 # Configuration
 MAX_SOURCES_TO_SHOW = 3
 MAX_CHUNKS_PER_SOURCE = 2
-SIMILARITY_THRESHOLD = 0.25
+SIMILARITY_THRESHOLD = 0.15
 CONVERSATION_MEMORY_SIZE = 10  # Number of previous exchanges to remember
 DEFAULT_LOCAL_DIR = r"Entity_Resorts"
 
@@ -413,6 +413,56 @@ def get_conversation_memory(chat, window_size=CONVERSATION_MEMORY_SIZE):
     
     return recent_exchanges
 
+def enhanced_document_retrieval(query, vectorstore, k=20, similarity_threshold=0.15):
+    """Enhanced retrieval with multiple search strategies"""
+    
+    # Strategy 1: Original similarity search
+    try:
+        docs1 = vectorstore.similarity_search(query, k=k)
+    except Exception:
+        docs1 = []
+    
+    # Strategy 2: Search with score for filtering
+    try:
+        scored_docs = vectorstore.similarity_search_with_score(query, k=k*2)
+        docs2 = [doc for doc, score in scored_docs if score >= similarity_threshold]
+    except Exception:
+        docs2 = []
+    
+    # Strategy 3: Try with different query formulations for better recall
+    alternative_queries = [
+        query,
+        query + " procedure reception",
+        "balance reception merchandise", 
+        "material necessary reception",
+        "equipment required reception",
+    ]
+    
+    all_docs = docs1 + docs2
+    
+    for alt_query in alternative_queries[1:]:
+        try:
+            additional_docs = vectorstore.similarity_search(alt_query, k=10)
+            all_docs.extend(additional_docs)
+        except Exception:
+            continue
+    
+    # Remove duplicates based on content and metadata
+    seen = set()
+    unique_docs = []
+    for doc in all_docs:
+        # Create a unique identifier for the document
+        doc_id = (
+            doc.metadata.get("source", ""),
+            doc.metadata.get("page", ""),
+            doc.page_content[:100]  # First 100 chars of content
+        )
+        if doc_id not in seen:
+            seen.add(doc_id)
+            unique_docs.append(doc)
+    
+    return unique_docs[:k]  # Return top k unique documents
+
 def new_chat():
     chat_id = f"chat-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     st.session_state.chats.append({
@@ -660,27 +710,12 @@ if user_query:
     with st.spinner("Searching knowledge base..."):
         try:
             # Use MMR for diverse, relevant results
-            docs = vectorstore.similarity_search(
+            docs = enhanced_document_retrieval(
                 enhanced_query, 
-                k=15
+                vectorstore,
+                k=20,
+                similarity_threshold=SIMILARITY_THRESHOLD
             )
-            
-            # Apply similarity threshold
-            try:
-                scored = vectorstore.similarity_search_with_score(enhanced_query, k=20)
-                filtered_docs = [d for d, score in scored if score >= SIMILARITY_THRESHOLD]
-                if filtered_docs:
-                    filtered_sources = {
-                        (d.metadata.get("source") or d.metadata.get("file_path") or "unknown") 
-                        for d in filtered_docs
-                    }
-                    docs = [
-                        d for d in docs 
-                        if (d.metadata.get("source") or d.metadata.get("file_path") or "unknown") in filtered_sources
-                    ]
-            except Exception as e:
-                st.warning(f"Similarity scoring not available: {e}")
-                # Continue with MMR results
             
             # Limit sources intelligently
             docs = limit_sources_intelligently(docs, MAX_SOURCES_TO_SHOW, MAX_CHUNKS_PER_SOURCE)
@@ -738,22 +773,24 @@ USER'S QUESTION: {user_query}
 
 INSTRUCTIONS:
 1. **Carefully read all the provided sources above before answering**
-2. **If the sources contain relevant information to answer the question:**
+2. **ALWAYS respond in the SAME LANGUAGE as the user's question**
+3. **If the sources contain relevant information to answer the question:**
    - Provide a comprehensive answer based ONLY on the provided sources.
    - Cite relevant sources using bracket notation [1], [2], etc.
    - Do not add information from your general knowledge.
-3. **If the sources do NOT contain relevant information to answer the question:**
+4. **If the sources do NOT contain relevant information to answer the question:**
     - Clearly state: "I don't find information about [topic] in the provided sources."
     - Avoid fabricating answers or making assumptions.
     - Do not provide answers from your general knowledge.
     - Do not make up information.
-4. If this is a follow-up question, maintain continuity with the previous conversation
-5. {response_guidance}
+5. If this is a follow-up question, maintain continuity with the previous conversation
+6. {response_guidance}
 
 IMPORTANT: 
-- Only answer if the sources are ACTUALLY relevant to the question.
+- Answer ONLY if the sources are ACTUALLY relevant to the question.
 - Don't refuse to answer if you find relevant information in the sources.
 - Don't use general knowledge—stick to the sources ONLY.
+- RESPOND IN THE SAME LANGUAGE AS THE USER'S QUESTION.
 
 RESPONSE:"""
         
