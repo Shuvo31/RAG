@@ -660,10 +660,9 @@ if user_query:
     with st.spinner("Searching knowledge base..."):
         try:
             # Use MMR for diverse, relevant results
-            docs = vectorstore.max_marginal_relevance_search(
+            docs = vectorstore.similarity_search(
                 enhanced_query, 
-                k=12,  # Slightly more for better coverage
-                fetch_k=30
+                k=15
             )
             
             # Apply similarity threshold
