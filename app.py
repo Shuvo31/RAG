@@ -416,52 +416,69 @@ def get_conversation_memory(chat, window_size=CONVERSATION_MEMORY_SIZE):
 def enhanced_document_retrieval(query, vectorstore, k=20, similarity_threshold=0.15):
     """Enhanced retrieval with multiple search strategies"""
     
-    # Strategy 1: Original similarity search
+    all_docs = []
+    
+    # Strategy 1: Standard similarity search
     try:
         docs1 = vectorstore.similarity_search(query, k=k)
-    except Exception:
-        docs1 = []
+        all_docs.extend(docs1)
+        print(f"Standard search found {len(docs1)} docs")  # Debug
+    except Exception as e:
+        print(f"Standard search error: {e}")
     
-    # Strategy 2: Search with score for filtering
+    # Strategy 2: Search with score filtering
     try:
         scored_docs = vectorstore.similarity_search_with_score(query, k=k*2)
         docs2 = [doc for doc, score in scored_docs if score >= similarity_threshold]
-    except Exception:
-        docs2 = []
+        all_docs.extend(docs2)
+        print(f"Scored search found {len(docs2)} docs")  # Debug
+    except Exception as e:
+        print(f"Scored search error: {e}")
     
-    # Strategy 3: Try with different query formulations for better recall
-    alternative_queries = [
-        query,
-        query + " procedure reception",
-        "balance reception merchandise", 
-        "material necessary reception",
-        "equipment required reception",
-    ]
+    # Strategy 3: Try alternative query formulations
+    alternative_queries = []
     
-    all_docs = docs1 + docs2
+    # For French queries about scales/balances
+    if any(word in query.lower() for word in ['balance', 'scale', 'pèse', 'peser', 'étalonnée']):
+        alternative_queries.extend([
+            "balance réception marchandises",
+            "matériel nécessaire réception",
+            "équipement réception",
+            "balance étalonnée réception"
+        ])
     
-    for alt_query in alternative_queries[1:]:
+    # Add general alternatives
+    alternative_queries.extend([
+        query + " procédure réception",
+        "réception des marchandises équipement",
+        "matériel requis réception"
+    ])
+    
+    for alt_query in alternative_queries:
         try:
             additional_docs = vectorstore.similarity_search(alt_query, k=10)
             all_docs.extend(additional_docs)
-        except Exception:
+            print(f"Alt query '{alt_query}' found {len(additional_docs)} docs")  # Debug
+        except Exception as e:
+            print(f"Alt query error: {e}")
             continue
     
-    # Remove duplicates based on content and metadata
+    # Remove duplicates
     seen = set()
     unique_docs = []
     for doc in all_docs:
-        # Create a unique identifier for the document
         doc_id = (
             doc.metadata.get("source", ""),
             doc.metadata.get("page", ""),
-            doc.page_content[:100]  # First 100 chars of content
+            hash(doc.page_content[:200])  # More robust duplicate detection
         )
         if doc_id not in seen:
             seen.add(doc_id)
             unique_docs.append(doc)
     
-    return unique_docs[:k]  # Return top k unique documents
+    print(f"Total unique documents found: {len(unique_docs)}")  # Debug
+    return unique_docs[:k]
+
 
 def new_chat():
     chat_id = f"chat-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
