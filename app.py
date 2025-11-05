@@ -292,6 +292,32 @@ class QueryEnhancer:
         
         return intents
 
+def is_no_answer_response(response_text):
+    """
+    Check if response indicates no information was found.
+    Returns True if the AI says it doesn't have information.
+    """
+    no_answer_phrases = [
+        # English phrases
+        "don't have information",
+        "don't find information",
+        "no information about",
+        "cannot find information",
+        "not found in the documents",
+        "outside the scope",
+        "couldn't find relevant",
+        
+        # French phrases  
+        "ne trouve pas d'information",
+        "pas d'information sur",
+        "ne dispose pas d'information",
+        "n'ai pas d'information"
+    ]
+    
+    response_lower = response_text.lower()
+    return any(phrase in response_lower for phrase in no_answer_phrases)
+
+
 # -----------------------------
 # Image Query Handler
 # -----------------------------
@@ -606,8 +632,7 @@ with st.sidebar:
     # Chat history with better display
     for chat in st.session_state.chats:
         is_active = chat["id"] == st.session_state.current_chat_id
-        emoji = "O" if is_active else "*"
-        label = f"{emoji} {chat['title']}"
+        label = f"{chat['title']}"
         
         if st.button(label, key=chat["id"], use_container_width=True):
             st.session_state.current_chat_id = chat["id"]
@@ -621,54 +646,8 @@ with st.sidebar:
     st.metric("Total Output Tokens", f"{cost_summary['total_output_tokens']:,}")
     st.metric("Estimated Cost", f"${cost_summary['estimated_cost']:.4f}")
     
-    st.divider()
-    st.subheader("RAG Settings")
-    st.caption(f"Max sources: {MAX_SOURCES_TO_SHOW}")
-    st.caption(f"Chunks per source: {MAX_CHUNKS_PER_SOURCE}")
-    st.caption(f"Similarity threshold: {SIMILARITY_THRESHOLD}")
-    st.caption(f"Memory size: {CONVERSATION_MEMORY_SIZE} exchanges")
     
-    st.divider()
-    st.subheader("Image Support")
-    st.caption("Image text extraction available via separate processor")
-    if st.button("Check for Image Content", use_container_width=True):
-    # Check if image content exists in the vectorstore
-        image_docs = []
-        try:
-        # Use a broader search to find image content
-        # Try multiple queries with larger k value
-            queries = ["content document", "image chart diagram", "visual content", "figure illustration"]
-            for query in queries:
-                sample_docs = vectorstore.similarity_search(query, k=50)  # Increased from 10 to 50
-                found = [doc for doc in sample_docs if doc.metadata.get('content_type') == 'image_ocr']
-                image_docs.extend(found)
-        
-        # Remove duplicates
-            seen = set()
-            unique_docs = []
-            for doc in image_docs:
-                doc_id = (doc.metadata.get('file_name', ''), doc.metadata.get('original_page', ''))
-                if doc_id not in seen:
-                    seen.add(doc_id)
-                    unique_docs.append(doc)
-            image_docs = unique_docs
-            
-        except Exception as e:
-            st.error(f"Error checking for images: {e}")
-    
-        if image_docs:
-            st.success(f"Found {len(image_docs)} unique image text chunks")
-        
-        # Show a sample
-            if image_docs:
-                with st.expander("View Sample Image Content"):
-                    sample = image_docs[0]
-                    st.write(f"**File:** {sample.metadata.get('file_name', 'Unknown')}")
-                    st.write(f"**Page:** {sample.metadata.get('original_page', '?')}")
-                    st.write(f"**Text Preview:** {sample.page_content[:200]}...")
-        else:
-            st.info("No image content found. Run image_processor.py to extract text from images.")
-# -----------------------------
+
 # Main Chat Interface
 # -----------------------------
 current = get_current_chat()
@@ -685,7 +664,7 @@ for msg in current["messages"]:
         
         if msg["role"] == "assistant":
             # Show sources if available
-            if msg.get("sources"):
+            if msg.get("sources") and not is_no_answer_response(msg["content"]):
                 with st.expander("View Sources", expanded=False):
                     for line in msg["sources"]:
                         st.markdown(line)
@@ -850,6 +829,8 @@ RESPONSE:"""
                 cost = 0
         
         sources_md = format_sources_markdown(ordered_sources)
+        if is_no_answer_response(ai_response):
+            sources_md = []  # Hide sources if no answer found
 
     # Save and display assistant response
     current["messages"].append({
