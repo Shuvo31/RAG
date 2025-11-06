@@ -202,6 +202,60 @@ def check_authentication():
     login_ui()
     return False
 
+# Query classification for handling general chat vs knowledge queries
+class QueryClassifier:
+    """Distinguishes between general chat and knowledge base queries"""
+    
+    def __init__(self):
+        self.general_chat_patterns = [
+            r'^(hi|hello|hey|bonjour|salut|coucou)[\s!.?]*$',
+            r'how\s+are\s+you', r'comment\s+(vas|allez)', r'ça\s+va',
+            r'(i\s+am|i\'m|je\s+suis)\s+(feeling|lonely|sad|happy|tired)',
+            r'(i\s+feel|je\s+me\s+sens)', r'talk\s+to\s+(me|you)',
+            r'^(thanks|thank\s+you|merci)[\s!.?]*$',
+            r'^(bye|goodbye|au\s+revoir)[\s!.?]*$',
+            r'(what|who)\s+are\s+you',
+        ]
+        self.knowledge_indicators = [
+            r'(comment|pourquoi|quand|où|qui|quel|combien)',
+            r'(club\s+med|village|resort)',
+            r'(inventaire|inventory|facture|invoice|commande|order)',
+            r'(procédure|procedure|process)',
+            r'(coupa|ecomat|s@fe|e[\s-]?pack)',
+        ]
+        self.chat_regex = [re.compile(p, re.IGNORECASE) for p in self.general_chat_patterns]
+        self.knowledge_regex = [re.compile(p, re.IGNORECASE) for p in self.knowledge_indicators]
+    
+    def is_general_chat(self, query):
+        query_lower = query.lower().strip()
+        chat_matches = sum(1 for p in self.chat_regex if p.search(query_lower))
+        knowledge_matches = sum(1 for p in self.knowledge_regex if p.search(query_lower))
+        if chat_matches > 0 and knowledge_matches == 0:
+            return True
+        if knowledge_matches > 0:
+            return False
+        if len(query_lower.split()) <= 3:
+            return True
+        return False
+
+def get_general_chat_response(query):
+    """Generate appropriate response for general chat"""
+    q = query.lower()
+    if any(w in q for w in ['hi', 'hello', 'hey', 'bonjour', 'salut']):
+        return "Hello! I'm the Club Med Knowledge Assistant. I can help you find information from Club Med documents and procedures. What would you like to know?"
+    if 'how are you' in q or 'comment vas' in q or 'ça va' in q:
+        return "I'm doing well, thank you! I'm here to help you with Club Med documentation. What would you like to know?"
+    if any(w in q for w in ['lonely', 'sad', 'feeling']):
+        return "I'm here to assist with Club Med documentation and procedures. Is there something about Club Med procedures I can help you with?"
+    if 'thank' in q or 'merci' in q:
+        return "You're welcome! Let me know if you need anything else."
+    if 'bye' in q or 'goodbye' in q or 'au revoir' in q:
+        return "Goodbye! Feel free to return anytime."
+    if 'who are you' in q or 'what are you' in q:
+        return "I'm the Club Med Knowledge Assistant. I help you find information from Club Med documents and procedures. How can I assist you today?"
+    return "I'm the Club Med Knowledge Assistant. What would you like to know about Club Med procedures?"
+
+
 # -----------------------------
 # Enhanced Cached Resource Loaders
 # -----------------------------
@@ -247,6 +301,11 @@ def load_llm():
     except Exception as e:
         st.error(f"Error initializing Azure OpenAI: {e}")
         st.stop()
+
+
+# Initialize query classifier
+if "query_classifier" not in st.session_state:
+    st.session_state.query_classifier = QueryClassifier()
 
 # -----------------------------
 # Query Understanding & Enhancement
@@ -797,7 +856,7 @@ for msg in current["messages"]:
         
         if msg["role"] == "assistant":
             # Show sources if available
-            if msg.get("sources") and not is_no_answer_response(msg["content"]):
+            if not msg.get("is_general_chat", False) and msg.get("sources") and not is_no_answer_response(msg["content"]):
                 with st.expander("View Sources", expanded=False):
                     for line in msg["sources"]:
                         st.markdown(line)
@@ -821,6 +880,25 @@ if user_query:
     with st.chat_message("user"):
         st.write(user_query)
     
+    is_chat = st.session_state.query_classifier.is_general_chat(user_query)
+
+    if is_chat:
+        # Handle general chat queries
+        ai_response = get_general_chat_response(user_query)
+
+        # Save assistant response (no sources, no tokens)
+        current["messages"].append({
+            "role": "assistant",
+            "content": ai_response,
+            "sources": [],
+            "token_usage": {"input_tokens": 0, "output_tokens": 0},
+            "cost": 0,
+            "timestamp": datetime.now().isoformat(),
+            "is_general_chat": True
+        })
+        
+        st.rerun()
+        
     # Get conversation context for memory
     conversation_context = get_conversation_memory(current)
     
