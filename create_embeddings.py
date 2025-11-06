@@ -24,8 +24,8 @@ embeddings = HuggingFaceEmbeddings(
 
 # Text splitter
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,
-    chunk_overlap=150,
+    chunk_size=2000,
+    chunk_overlap=500,
 )
 
 def load_image_texts(image_text_file="extracted_image_texts.json"):
