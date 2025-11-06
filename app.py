@@ -615,29 +615,45 @@ if st.session_state.current_chat_id is None:
 # Enhanced Sidebar with User Info
 # -----------------------------
 with st.sidebar:
-    # User info section
-    st.header(f"{st.session_state.user_email.split('@')[0]}")
-    st.caption(st.session_state.user_email)
+    # Professional user profile with custom styling
+    st.markdown(f"""
+        <div style='padding: 0.5rem 0; border-bottom: 1px solid rgba(49, 51, 63, 0.2);'>
+            <h3 style='margin: 0; font-size: 1rem; font-weight: 600;'>{st.session_state.user_email.split('@')[0].title()}</h3>
+            <p style='margin: 0.25rem 0 0 0; font-size: 0.8rem; color: rgba(49, 51, 63, 0.6);'>{st.session_state.user_email}</p>
+        </div>
+    """, unsafe_allow_html=True)
     
-    if st.button("Sign Out", use_container_width=True):
+    if st.button("Sign Out", use_container_width=True, type="secondary"):
         logout()
     
     st.divider()
-    st.header("Chat Sessions")
     
-    if st.button("New Chat", use_container_width=True):
+    # Single, prominent button
+    if st.button("+ New Conversation", use_container_width=True, type="primary"):
         new_chat()
         st.rerun()
     
-    # Chat history with better display
-    for chat in st.session_state.chats:
-        is_active = chat["id"] == st.session_state.current_chat_id
-        label = f"{chat['title']}"
+    # Filter and display only active conversations
+    if st.session_state.chats:
+        active_chats = [chat for chat in st.session_state.chats if len(chat.get("messages", [])) > 0]
         
-        if st.button(label, key=chat["id"], use_container_width=True):
-            st.session_state.current_chat_id = chat["id"]
-            st.rerun()
-    
+        if active_chats:
+            st.markdown("<div style='margin-top: 1.5rem; margin-bottom: 0.5rem;'><small style='color: rgba(49, 51, 63, 0.6); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; font-size: 0.7rem;'>Recent Conversations</small></div>", unsafe_allow_html=True)
+            
+            for chat in active_chats:
+                is_active = chat["id"] == st.session_state.current_chat_id
+                
+                title = chat.get("title", "Untitled Conversation")
+                if title == "New chat" and chat.get("messages"):
+                    first_msg = chat["messages"][0]["content"]
+                    title = (first_msg[:50] + "...") if len(first_msg) > 50 else first_msg
+                
+                button_type = "primary" if is_active else "secondary"
+                display_title = f"{'▸ ' if is_active else '  '}{title}"
+                
+                if st.button(display_title, key=chat["id"], use_container_width=True, type=button_type):
+                    st.session_state.current_chat_id = chat["id"]
+                    st.rerun()
     st.divider()
     st.subheader("Usage & Costs")
     
