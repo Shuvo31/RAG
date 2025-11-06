@@ -591,6 +591,123 @@ def format_sources_markdown(ordered_sources, page_limit=12, show_basename=True):
             lines.append(f"[{i}] {name}")
     return lines
 
+def enhanced_retrieval_for_technical_terms(query, vectorstore, k=30, fetch_k=100):
+    """
+    Retrieval optimized for technical terms and French queries
+    
+    Key improvements:
+    1. Uses MMR with high fetch_k to get more candidates
+    2. Re-ranks based on exact term matching
+    3. Boosts documents with technical terms
+    4. No similarity threshold filtering
+    """
+    from collections import defaultdict
+    import re
+    
+    # Extract potential technical terms from query
+    # Technical patterns: 
+    # - Words with special chars (e-pack, S@fe)
+    # - English words in French context (pending, free text)
+    # - Acronyms (PMH, SLV, F&B)
+    
+    technical_patterns = [
+        r'\b[A-Z@]{2,}\b',  # Acronyms: S@fe, PMH
+        r'\be-\w+\b',  # e-pack, e-mail
+        r'\bpending\s+\w+\b',  # pending approval, pending receipt
+        r'\bfree\s+text\b',  # free text
+        r'\b[A-Z]{2,}\b',  # Uppercase: VLS, RFI
+    ]
+    
+    technical_terms = set()
+    for pattern in technical_patterns:
+        matches = re.findall(pattern, query, re.IGNORECASE)
+        technical_terms.update([m.lower() for m in matches])
+    
+    # Also extract key French terms (2+ chars, not common words)
+    common_words = {'qui', 'que', 'quoi', 'est', 'dans', 'une', 'des', 'les', 'pour', 
+                    'sur', 'avec', 'par', 'peux', 'expliquer', 'donner', 'peut'}
+    query_words = [w.lower() for w in query.split() if len(w) > 2 and w.lower() not in common_words]
+    
+    print(f"Technical terms detected: {technical_terms}")
+    print(f"Key query words: {query_words[:5]}")
+    
+    # Strategy 1: Get diverse candidates with MMR
+    try:
+        mmr_docs = vectorstore.max_marginal_relevance_search(
+            query,
+            k=k,
+            fetch_k=fetch_k  # Fetch many candidates
+        )
+    except:
+        # Fallback to similarity search
+        mmr_docs = vectorstore.similarity_search(query, k=k)
+    
+    # Strategy 2: Also get pure similarity matches
+    sim_docs = vectorstore.similarity_search_with_score(query, k=k)
+    
+    # Combine and deduplicate
+    seen_content = set()
+    combined = []
+    
+    # Add MMR docs first (they're already ordered by relevance + diversity)
+    for doc in mmr_docs:
+        content_hash = hash(doc.page_content[:200])
+        if content_hash not in seen_content:
+            seen_content.add(content_hash)
+            combined.append((doc, 0.1))  # Low score = high relevance
+    
+    # Add similarity docs
+    for doc, score in sim_docs:
+        content_hash = hash(doc.page_content[:200])
+        if content_hash not in seen_content:
+            seen_content.add(content_hash)
+            combined.append((doc, score))
+    
+    # Re-rank based on technical term matches and query word density
+    scored_docs = []
+    
+    for doc, original_score in combined:
+        content_lower = doc.page_content.lower()
+        
+        # Start with original score
+        final_score = original_score
+        
+        # Heavy boost for exact technical term matches
+        tech_matches = sum(1 for term in technical_terms if term in content_lower)
+        if tech_matches > 0:
+            # Each technical term match significantly boosts relevance
+            final_score *= (0.3 ** tech_matches)  # Very strong boost
+        
+        # Boost for query word density
+        word_matches = sum(1 for word in query_words if word in content_lower)
+        if word_matches > 0:
+            match_ratio = word_matches / len(query_words) if query_words else 0
+            final_score *= (0.7 ** match_ratio)
+        
+        # Boost for exact phrase matches (if query has quoted terms or key phrases)
+        if 'pending approval' in query.lower() and 'pending approval' in content_lower:
+            final_score *= 0.2
+        if 'pending receipt' in query.lower() and 'pending receipt' in content_lower:
+            final_score *= 0.2
+        if 'free text' in query.lower() and 'free text' in content_lower:
+            final_score *= 0.2
+        if 'e-pack' in query.lower() and 'e-pack' in content_lower:
+            final_score *= 0.2
+        
+        scored_docs.append((doc, final_score, tech_matches, word_matches))
+    
+    # Sort by final score (lower is better)
+    scored_docs.sort(key=lambda x: x[1])
+    
+    # Debug: Show top results
+    print(f"\nTop 5 retrieval results:")
+    for i, (doc, score, tech, words) in enumerate(scored_docs[:5], 1):
+        fname = doc.metadata.get('file_name', 'Unknown')
+        print(f"  {i}. Score: {score:.4f} | Tech: {tech} | Words: {words} | {fname}")
+    
+    # Return just the documents
+    return [doc for doc, _, _, _ in scored_docs[:k]]
+
 # -----------------------------
 # Initialize Resources and Session
 # -----------------------------
@@ -722,11 +839,11 @@ if user_query:
     with st.spinner("Searching knowledge base..."):
         try:
             # Use MMR for diverse, relevant results
-            docs = enhanced_document_retrieval(
+            docs = enhanced_retrieval_for_technical_terms(
                 enhanced_query, 
                 vectorstore,
-                k=20,
-                similarity_threshold=SIMILARITY_THRESHOLD
+                k=30,
+                fetch_k=100
             )
             
             # Limit sources intelligently
@@ -787,22 +904,27 @@ INSTRUCTIONS:
 1. **Carefully read all the provided sources above before answering**
 2. **ALWAYS respond in the SAME LANGUAGE as the user's question**
 3. **If the sources contain relevant information to answer the question:**
-   - Provide a comprehensive answer based ONLY on the provided sources.
+   - Provide a comprehensive answer based ONLY on the provided sources
    - Cite relevant sources using bracket notation [1], [2], etc.
-   - Do not add information from your general knowledge.
+   - For technical terms, be very precise and use exact terminology from the sources
+   - Do not add information from your general knowledge
 4. **If the sources do NOT contain relevant information to answer the question:**
-    - Clearly state: "I don't find information about [topic] in the provided sources."
-    - Avoid fabricating answers or making assumptions.
-    - Do not provide answers from your general knowledge.
-    - Do not make up information.
-5. If this is a follow-up question, maintain continuity with the previous conversation
-6. {response_guidance}
+   - Clearly state: "Je ne trouve pas d'informations sur [topic] dans les sources fournies." if reply for french, or "I don't find information about [topic] in the provided sources." if reply for english.
+   - Do not fabricate answers or make assumptions
+   - Do not provide answers from your general knowledge
+5. **For technical queries (systems, processes, specific terms):**
+   - Look for EXACT matches of the technical terms
+   - Explain the specific meaning/purpose
+   - Distinguish between similar terms if applicable
+6. If this is a follow-up question, maintain continuity with the previous conversation
+7. {response_guidance}
 
 IMPORTANT: 
-- Answer ONLY if the sources are ACTUALLY relevant to the question.
-- Don't refuse to answer if you find relevant information in the sources.
-- Don't use general knowledge—stick to the sources ONLY.
-- RESPOND IN THE SAME LANGUAGE AS THE USER'S QUESTION.
+- Answer ONLY if the sources are ACTUALLY relevant to the question
+- Be precise with technical terminology
+- Don't refuse to answer if you find relevant information in the sources
+- Don't use general knowledge—stick to the sources ONLY
+- RESPOND IN THE SAME LANGUAGE AS THE USER'S QUESTION
 
 RESPONSE:"""
         

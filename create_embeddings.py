@@ -1,3 +1,6 @@
+"""
+Improved embedding creation with better chunking strategies for Q&A content
+"""
 import os
 import pickle
 import json
@@ -16,16 +19,21 @@ DEFAULT_LOCAL_DIR = r"Entity_Resorts"
 FAISS_INDEX_PATH = "faiss_index"
 METADATA_FILE = "document_metadata.pkl"
 
+# IMPROVED: Optimized chunks for Q&A content
+# Smaller chunks for faster processing while maintaining context
+CHUNK_SIZE = 1000  # Optimized size
+CHUNK_OVERLAP = 250  # Optimized overlap
+
 # Fast embeddings
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2",
     model_kwargs={"device": "cpu"},
 )
 
-# Text splitter
+# Standard text splitter with optimized settings
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=2000,
-    chunk_overlap=500,
+    chunk_size=CHUNK_SIZE,
+    chunk_overlap=CHUNK_OVERLAP,
 )
 
 def load_image_texts(image_text_file="extracted_image_texts.json"):
@@ -109,7 +117,7 @@ def ensure_vectorstore():
     return None
 
 def main():
-    parser = argparse.ArgumentParser(description="Enhanced embeddings with optional image text")
+    parser = argparse.ArgumentParser(description="Create embeddings with optimized chunking")
     parser.add_argument("--dir", default=DEFAULT_LOCAL_DIR, 
                        help=f"Directory to process (default: {DEFAULT_LOCAL_DIR})")
     parser.add_argument("--reset", action="store_true", help="Create new index")
@@ -121,6 +129,7 @@ def main():
     args = parser.parse_args()
 
     print(f"Starting document processing from: {args.dir}")
+    print(f"Chunk size: {CHUNK_SIZE}, Overlap: {CHUNK_OVERLAP}")
     
     # Load regular documents
     regular_docs = load_regular_documents(args.dir)
@@ -141,10 +150,18 @@ def main():
     # Split into chunks
     print("Splitting documents into chunks...")
     texts = text_splitter.split_documents(all_docs)
+    
     print(f"Created {len(texts)} chunks")
     
     # Count image chunks for summary
     image_chunks = sum(1 for text in texts if text.metadata.get('content_type') == 'image_ocr')
+    
+    # Analyze chunk sizes
+    chunk_sizes = [len(text.page_content) for text in texts]
+    avg_size = sum(chunk_sizes) / len(chunk_sizes) if chunk_sizes else 0
+    print(f"  - Average chunk size: {avg_size:.0f} chars")
+    print(f"  - Regular chunks: {len(texts) - image_chunks}")
+    print(f"  - Image chunks: {image_chunks}")
     
     # Create or update vector store
     if args.reset or not Path(FAISS_INDEX_PATH).exists():
@@ -166,17 +183,24 @@ def main():
     # Save metadata
     metadata = {
         "total_chunks": len(texts),
-        "regular_chunks": len(regular_docs),
+        "regular_chunks": len(texts) - image_chunks,
         "image_chunks": image_chunks,
         "source_directory": args.dir,
         "created_at": datetime.now().isoformat(),
-        "includes_image_texts": args.include_images
+        "includes_image_texts": args.include_images,
+        "chunk_size": CHUNK_SIZE,
+        "chunk_overlap": CHUNK_OVERLAP,
+        "avg_chunk_size": avg_size
     }
     with open(METADATA_FILE, "wb") as f:
         pickle.dump(metadata, f)
     
-    print(f"FAISS index created successfully!")
-    print(f"Summary: {len(texts)} total chunks ({image_chunks} from images)")
+    print(f"\n✓ FAISS index created successfully!")
+    print(f"Summary:")
+    print(f"  - Total chunks: {len(texts)}")
+    print(f"  - Regular chunks: {len(texts) - image_chunks}")
+    print(f"  - Image chunks: {image_chunks}")
+    print(f"  - Average chunk size: {avg_size:.0f} chars")
 
 if __name__ == "__main__":
     main()
